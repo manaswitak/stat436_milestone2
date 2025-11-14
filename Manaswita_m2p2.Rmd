@@ -1,0 +1,94 @@
+---
+title: "m2p2"
+output: html_document
+date: "2025-11-14"
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Visualization 2 + writeup draft - Ana will do - doing shiny scatter plot , y axis is happiness score, x axis is individual variable like corruption, in shiny user can choose their choice of variable for the x axis, points are colored by happiness rank.
+
+```{r, warning=FALSE, message=FALSE}
+library(tidyverse)
+whr <- read_csv("whr.csv")
+
+ana_whr <- whr %>%
+  rename("Happiness_Score" = "Happiness score")
+```
+
+
+```{r}
+library(shiny)
+library(ggplot2)
+
+# Helper function to get variable label
+get_var_label <- function(var) {
+  labels <- list(
+    GDP = "GDP",
+    Corruption = "Corruption",
+    Freedom = "Freedom",
+    Generosity = "Generosity"
+  )
+  return(labels[[var]])
+}
+
+# Helper function to create scatterplot
+create_happiness_plot <- function(data, variable) {
+  var_label <- get_var_label(variable)
+  
+  ggplot(data, aes_string(x = variable, y = "Happiness_Score")) +
+    geom_point(aes(color = Rank), size = 4, alpha = 0.7) +
+    geom_smooth(method = "lm", se = TRUE, color = "black", alpha = 0.2) +
+    labs(
+      x = var_label,
+      y = "Happiness Score",
+      title = paste("Happiness Score vs.", var_label),
+      color = "Happiness Rank"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 16, face = "bold"),
+      axis.title = element_text(size = 12),
+      legend.position = "bottom"
+    )
+}
+
+# Define UI
+ui <- fluidPage(
+  titlePanel("Happiness Score Variable Analysis"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      selectInput(
+        inputId = "variable",
+        label = "Select variable to plot against Happiness Score:",
+        choices = c("GDP" = "GDP",
+                    "Corruption" = "Corruption",
+                    "Freedom" = "Freedom",
+                    "Generosity" = "Generosity"),
+        selected = "GDP"
+      ),
+      hr(),
+      p("This app shows the relationship between Happiness Score and various factors.")
+    ),
+    
+    mainPanel(
+      plotOutput("scatterplot", height = "600px")
+    )
+  )
+)
+
+# Define server logic
+server <- function(input, output) {
+  output$scatterplot <- renderPlot({
+    create_happiness_plot(ana_whr, input$variable)
+  })
+}
+
+# Run the application
+shinyApp(ui = ui, server = server)
+
+```

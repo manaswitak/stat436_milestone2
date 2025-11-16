@@ -9,14 +9,14 @@ runtime: shiny
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Visualization 2 + writeup draft - Ana will do - doing shiny scatter plot , y axis is happiness score, x axis is individual variable like corruption, in shiny user can choose their choice of variable for the x axis, points are colored by happiness rank.
+Visualization 2 + write up draft - Ana (Manaswita) will do
 
 ```{r, warning=FALSE, message=FALSE}
 library(tidyverse)
 whr <- read_csv("whr.csv")
 
 ana_whr <- whr %>%
-  rename("Happiness_Score" = "Happiness score")
+  rename("Happiness_Score" = "Happiness score", "Trust" = "Corruption")
 ```
 
 
@@ -28,31 +28,34 @@ library(ggplot2)
 get_var_label <- function(var) {
   labels <- list(
     GDP = "GDP",
-    Corruption = "Corruption",
+    Trust = "Trust",
     Freedom = "Freedom",
     Generosity = "Generosity"
   )
   return(labels[[var]])
 }
 
-# Helper function to create scatterplot
+# Helper function to create scatter plot
 create_happiness_plot <- function(data, variable) {
   var_label <- get_var_label(variable)
   
   ggplot(data, aes_string(x = variable, y = "Happiness_Score")) +
-    geom_point(aes(color = Rank), size = 4, alpha = 0.7) +
-    geom_smooth(method = "lm", se = TRUE, color = "black", alpha = 0.2) +
+    geom_point(aes(color = Year), size = 4, alpha = 0.7) +
+    geom_smooth(method = "lm", se = TRUE, color = "purple4", alpha = 0.2) +
+    scale_color_gradient(low = "lavender", high = "purple") +
     labs(
       x = var_label,
       y = "Happiness Score",
       title = paste("Happiness Score vs.", var_label),
-      color = "Happiness Rank"
+      color = "Year of Survey"
     ) +
     theme_minimal() +
     theme(
       plot.title = element_text(size = 16, face = "bold"),
       axis.title = element_text(size = 12),
-      legend.position = "bottom"
+      legend.position = "bottom",
+      legend.text = element_text(angle = 45, hjust = 1),
+      legend.title = element_text(margin = margin(b = 30, r = 10))
     )
 }
 
@@ -66,7 +69,7 @@ ui <- fluidPage(
         inputId = "variable",
         label = "Select variable to plot against Happiness Score:",
         choices = c("GDP" = "GDP",
-                    "Corruption" = "Corruption",
+                    "Trust" = "Trust",
                     "Freedom" = "Freedom",
                     "Generosity" = "Generosity"),
         selected = "GDP"

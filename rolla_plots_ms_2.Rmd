@@ -1,0 +1,371 @@
+```{r}
+library(tidyverse)
+library(dplyr)
+library(DT)
+library(sf)
+library(ggplot2)
+library(tsibble)
+library(factoextra)
+library(shinyr)
+library(shiny)
+library(shinydashboard)
+library(leaflet)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(RColorBrewer)
+library(htmlwidgets)
+
+```
+
+
+```{r}
+
+whr=read.csv("whr.csv")
+
+```
+
+
+
+
+
+
+#Map (used for MS#2 Submission)
+```{r}
+world = ne_countries(scale = "medium", returnclass = "sf") %>%
+  st_transform(crs = 4326)
+
+whr_clean = whr %>%
+  mutate(Country = recode(Country,
+    "United States" = "United States of America",
+    "Russia" = "Russian Federation",
+    "Czech Republic" = "Czechia",
+    "Congo (Brazzaville)" = "Republic of the Congo",
+    "Congo (Kinshasa)" = "Democratic Republic of the Congo"
+  ))
+
+world_data = world %>%
+  left_join(whr_clean, by = c("name" = "Country"))
+# I used chatGPT to help me with formatting and layout
+ui = fluidPage(
+  tags$head(
+    tags$style(HTML("
+      #map { 
+        height: 400px !important; 
+        width: 80% !important; 
+        margin-left: auto !important;
+        margin-right: auto !important;
+        display: block;
+      }
+
+      .hlegend-box {
+        padding: 6px; 
+        background: white; 
+        border: 1px solid #ccc; 
+        border-radius: 6px; 
+        width: 320px;
+      }
+      .hlegend-bar { 
+        height: 12px; 
+        display: flex; 
+        margin-top: 4px; 
+      }
+      .hlegend-labels {
+        display: flex; 
+        font-size: 10px; 
+        margin-top: 2px;
+      }
+      .hlegend-labels div { flex: 1; text-align: center; }
+
+      .input-row { margin-top: 20px; }
+      .control-panel { padding: 20px; background: #f8f8f8; border-radius: 8px; }
+    "))
+  ),
+
+  titlePanel("World Trust Map"),
+
+  fluidRow(
+    column(
+      width = 12,
+      leafletOutput("map")
+    )
+  ),
+
+  fluidRow(
+    class = "input-row",
+    column(
+      width = 12,
+      div(
+        class = "control-panel",
+        fluidRow(
+
+          column(
+            width = 4,
+            sliderInput("year", "Year:",
+              min = min(whr_clean$Year, na.rm = TRUE),
+              max = max(whr_clean$Year, na.rm = TRUE),
+              value = max(whr_clean$Year, na.rm = TRUE),
+              step = 1,
+              sep = "",
+              width = "100%"
+            )
+          ),
+
+          column(
+            width = 4,
+            sliderInput("rank", "Rank:",
+              min = min(whr_clean$Rank, na.rm = TRUE),
+              max = max(whr_clean$Rank, na.rm = TRUE),
+              value = range(whr_clean$Rank, na.rm = TRUE),
+              width = "100%"
+            )
+          ),
+          column(
+            width = 4,
+            sliderInput("trust", "Trust:",
+              min = min(whr_clean$Corruption, na.rm = TRUE),
+              max = max(whr_clean$Corruption, na.rm = TRUE),
+              value = range(whr_clean$Corruption, na.rm = TRUE),
+              width = "100%"
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+server = function(input, output, session) {
+
+  filtered_data = reactive({
+    world_data %>%
+      filter(
+        Year == input$year,
+        Rank >= input$rank[1],
+        Rank <= input$rank[2],
+        Corruption >= input$trust[1],
+        Corruption <= input$trust[2]
+      )
+  })
+
+  output$map = renderLeaflet({
+
+    pal = colorNumeric(
+      palette = rev(brewer.pal(12, "Purples")),
+      domain = world_data$Corruption,
+      na.color = "lightgray"
+    )
+
+    seq_vals = seq(
+      min(world_data$Corruption, na.rm = TRUE),
+      max(world_data$Corruption, na.rm = TRUE),
+      length.out = 12
+    )
+    colors = pal(seq_vals)
+
+    tick_vals = round(seq(
+      min(world_data$Corruption, na.rm = TRUE),
+      max(world_data$Corruption, na.rm = TRUE),
+      length.out = 5
+    ), 3)
+
+    legend_html = sprintf("
+      <div class='hlegend-box'>
+        <div style='font-weight:bold;'>Trust</div>
+        <div class='hlegend-bar'>
+          %s
+        </div>
+        <div class='hlegend-labels'>
+          <div>%s</div>
+          <div>%s</div>
+          <div>%s</div>
+          <div>%s</div>
+          <div>%s</div>
+        </div>
+      </div>",
+      paste0("<div style='flex:1; background:", colors, ";'></div>", collapse=""),
+      tick_vals[1], tick_vals[2], tick_vals[3], tick_vals[4], tick_vals[5]
+    )
+
+    leaflet(options = leafletOptions(minZoom = 1, maxZoom = 18)) %>%
+      addProviderTiles("CartoDB.PositronNoLabels") %>%
+      addPolygons(
+        data = filtered_data(),
+        fillColor = ~pal(Corruption),
+        fillOpacity = 0.85,
+        color = "black",
+        weight = 1,
+        label = ~paste0(
+          "<b>", name, "</b><br>",
+          "Rank: ", Rank, "<br>",
+          "Happiness Score: ", Happiness.score, "<br>",
+          "Trust: ", round(Corruption, 3)
+        ) %>% lapply(htmltools::HTML),
+        highlightOptions = highlightOptions(
+          weight = 3,
+          color = "white",
+          fillOpacity = 0.9,
+          bringToFront = TRUE
+        )
+      ) %>%
+      addControl(html = legend_html, position = "bottomleft")
+  })
+
+  observe({
+    d = filtered_data()
+    if (!("sf" %in% class(d)) || nrow(d) == 0) return()
+    bbox = st_bbox(d)
+    leafletProxy("map") %>%
+      fitBounds(
+        lng1 = bbox["xmin"],
+        lat1 = bbox["ymin"],
+        lng2 = bbox["xmax"],
+        lat2 = bbox["ymax"]
+      )
+  })
+}
+
+shinyApp(ui, server)
+
+```
+
+
+##############################################################################
+
+### Code for happiness calculator (Turned down(?) by prof)
+```{r}
+
+#aaah shit here we go again
+model = lm(Happiness.score ~ GDP + Health + Corruption+Generosity+Freedom, data = whr)
+
+summary(model)
+```
+
+
+
+```{r}
+
+all_scores = whr$Happiness.score
+mean_score = mean(all_scores, na.rm = TRUE)
+sd_score   = sd(all_scores, na.rm = TRUE)
+
+# ranges
+gdp_min    = round(min(whr$GDP, na.rm = TRUE), 3)
+gdp_max    = round(max(whr$GDP, na.rm = TRUE), 3)
+health_min = round(min(whr$Health, na.rm = TRUE), 3)
+health_max = round(max(whr$Health, na.rm = TRUE), 3)
+corr_min   = round(min(whr$Corruption, na.rm = TRUE), 3)
+corr_max   = round(max(whr$Corruption, na.rm = TRUE), 3)
+```
+
+
+```{r}
+#SHINY FAIRY 
+
+
+
+ui = fluidPage(
+  
+  titlePanel("Happiness Score Predictor & Similar Countries"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      
+      numericInput("gdp", "GDP", value = mean(whr$GDP, na.rm = TRUE)),
+      helpText(paste0("Range in data: ", gdp_min, " to ", gdp_max)),
+      
+      numericInput("health", "Health", value = mean(whr$Health, na.rm = TRUE)),
+      helpText(paste0("Range in data: ", health_min, " to ", health_max)),
+
+      numericInput("corr", "Corruption", value = mean(whr$Corruption, na.rm = TRUE)),
+      helpText(paste0("Range in data: ", corr_min, " to ", corr_max)),
+      
+      hr(),
+      strong("Predicted Happiness Score:"),
+      textOutput("pred")
+    ),
+    
+    mainPanel(
+      plotOutput("distPlot", height = "350px"),
+      hr(),
+      h3("Countries Most Similar to Your Input"),
+      DTOutput("similarTable")
+    )
+  )
+)
+
+
+
+
+
+
+
+server = function(input, output, session) {
+  
+  predicted = reactive({
+    newdata = data.frame(
+      GDP = input$gdp,
+      Health = input$health,
+      Corruption = input$corr
+    )
+    predict(model, newdata)
+  })
+  
+  output$pred = renderText({
+    round(predicted(), 3)
+  })
+  
+  output$distPlot = renderPlot({
+    dens = density(all_scores, na.rm = TRUE)
+    
+    plot(dens,
+         main = "Predicted Happiness vs Distribution",
+         xlab = "Happiness Score", lwd = 3)
+    
+    abline(v = predicted(), col = "red", lwd = 3)
+    text(predicted(), max(dens$y)*0.9,
+         paste0("Predicted: ", round(predicted(), 2)),
+         pos = 4, col = "red")
+    
+    abline(v = mean_score, col = "blue", lwd = 2, lty = 2)
+  })
+  
+###
+  
+  output$similarTable = renderDT({
+    
+    whr %>%
+      mutate(
+        dist = sqrt(
+          (GDP - input$gdp)^2 +
+          (Health - input$health)^2 +
+          (Corruption - input$corr)^2
+        )
+      ) %>%
+      arrange(dist) %>%
+      slice(1:10) %>%
+      select(
+        Country,
+        Rank,                 
+        Happiness.score,
+        GDP,
+        Health,
+        Corruption,
+        dist
+      ) %>%
+      datatable(
+        options = list(pageLength = 10),
+        rownames = FALSE
+      )
+  })
+}
+
+shinyApp(ui, server)
+
+
+```
+
+```{r}
+
+```
+
+

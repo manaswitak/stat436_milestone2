@@ -1,0 +1,53 @@
+---
+title: "ridges"
+author: "Valeria Diaz Moreno"
+date: "2025-11-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(ggridges)
+library(countrycode)
+```
+
+
+
+```{r}
+whr <- read.csv("whr.csv")
+whr$Region <- countrycode(whr$Country, "country.name", "region")
+whr_summ <- whr %>% 
+  group_by(Region) %>% 
+  mutate(mean_happiness = mean(Happiness.score)) %>% 
+  ungroup %>%
+  mutate(Region = fct_reorder(Region, mean_happiness, .desc = TRUE))
+
+head(whr_summ)
+```
+
+
+```{r}
+geom_dens_whr <- ggplot(whr_summ, aes(x = Happiness.score, y = Region, fill=mean_happiness)) +
+  labs(title="Happiness Score Distribution Across Regions", y= "Region", x="Happiness Score", fill="Average Happiness") +
+  geom_density_ridges(
+    jittered_points = TRUE, 
+    position = position_points_jitter(height = 0),
+    point_shape = '|', point_size = 3,
+    scale=4, alpha=0.95) +
+  theme_bw() +
+  scale_fill_gradient(
+    low = "#E0BBE4",
+    high = "#5D3A9B"
+  ) 
+
+geom_dens_whr
+```
+```{r}
+ggsave("geom_ridges2.png", plot = geom_dens_whr, width = 6, height = 4, units = "in", dpi = 300)
+```
+

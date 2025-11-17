@@ -92,7 +92,7 @@ server <- function(input, output) {
                      text = paste0(Country, " (", region, ")\n",
                                  "Avg Happiness: ", round(avg_happiness, 2), "\n",
                                  "Volatility (SD): ", round(sd_happiness, 3), "\n",
-                                 "Avg Corruption: ", round(avg_corruption, 3))),
+                                 "Avg Trust: ", round(avg_corruption, 3))),
                  alpha = 0.9) +  # Almost fully opaque
       
       scale_size_continuous(range = c(2, 12), name = "Volatility (SD)", guide = "none") +
@@ -101,7 +101,7 @@ server <- function(input, output) {
       scale_color_manual(values = custom_colors) +
       
       labs(
-        title = "Happiness Stability vs Corruption (2015-2024)",
+        title = "Happiness Stability vs Trust (2015-2024)",
         x = "Average Trust",
         y = "Average Happiness",
         color = "Volatility"
@@ -117,4 +117,5 @@ server <- function(input, output) {
 
 shinyApp(ui = ui, server = server)
 ```
+
 

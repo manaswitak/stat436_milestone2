@@ -1,0 +1,152 @@
+---
+title: Stat 436 Happiness Trends by Rank Group Over Time 
+author: "Risha Raman"
+date: "2025-11-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(shiny)
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+whr <- read_csv("Desktop/STAT 436/Group project/whr.csv")
+
+whr <- whr %>%
+  mutate(
+    RankGroup = case_when(
+      Rank <= 25 ~ "Top 25 happiest",
+      Rank <= 50 ~ "Ranks 26–50",
+      Rank <= 100 ~ "Ranks 51–100",
+      TRUE ~ "Ranks 101+"
+    ),
+    
+    RankGroup = factor(
+      RankGroup,
+      levels = c("Top 25 happiest", "Ranks 26–50", "Ranks 51–100", "Ranks 101+")
+    )
+  )
+
+
+happiness_rank_year <- whr %>%
+  group_by(RankGroup, Year) %>%
+  summarise(
+    Avg_Happiness = mean(`Happiness score`, na.rm = TRUE),
+    Q25 = quantile(`Happiness score`, 0.25, na.rm = TRUE),
+    Q75 = quantile(`Happiness score`, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+happiness_rank_year <- happiness_rank_year %>%
+  filter(!is.na(RankGroup))
+
+
+group_choices <- c("All rank groups",
+                   levels(happiness_rank_year$RankGroup))
+
+ui <- fluidPage(
+  titlePanel("Happiness Trends by Rank Group Over Time"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      helpText("Each panel shows one rank group of countries ranked most to least happiest"),
+       helpText("Rank is each country’s position in the World Happiness Report (1 = happiest)."),
+      helpText("Line = average happiness; pink ribbon = 25th–75th percentile."),
+      
+      selectInput(
+        inputId  = "group_filter",
+        label    = "Focus on a single rank group ",
+        choices  = group_choices,
+        selected = "All rank groups"
+      )
+    ),
+    
+    mainPanel(
+      plotOutput(
+        outputId = "facet_ts",
+        click    = "plot_click",
+        height   = "550px"
+      ),
+      verbatimTextOutput("click_info")
+    )
+  )
+)
+
+
+server <- function(input, output) {
+ 
+  filtered_data <- reactive({
+    if (input$group_filter == "All rank groups") {
+      happiness_rank_year
+    } else {
+      happiness_rank_year %>% filter(RankGroup == input$group_filter)
+    }
+  })
+  
+  
+  output$facet_ts <- renderPlot({
+    df <- filtered_data()
+    
+    ggplot(df, aes(x = Year, y = Avg_Happiness, group = RankGroup)) +
+      geom_ribbon(aes(ymin = Q25, ymax = Q75),
+                  fill = "pink", alpha = 0.25) +
+      geom_line(colour = "purple", linewidth = 1) +
+      geom_point(colour = "black", size = 2.5) +
+      facet_wrap(~ RankGroup, scales = "free_y") +
+      labs(
+        x = "Year",
+        y = "Average Happiness Score"
+      ) +
+      scale_x_continuous(breaks = sort(unique(df$Year))) +
+      theme_minimal(base_size = 14) +
+      theme(
+        strip.text = element_text(face = "bold"),
+        panel.spacing = unit(1, "lines")
+      )
+  })
+  
+
+  output$click_info <- renderPrint({
+    req(input$plot_click)
+    
+    df <- filtered_data()
+    
+    clicked <- nearPoints(
+      df,
+      input$plot_click,
+      xvar      = "Year",
+      yvar      = "Avg_Happiness",
+      maxpoints = 1,
+      threshold = 25,
+      addDist   = FALSE
+    )
+    
+    if (nrow(clicked) == 0) {
+      cat("Click near a data point to see details.")
+      return(invisible(NULL))
+    }
+    
+    clicked_pretty <- clicked %>%
+      mutate(
+        Average_Happiness = round(Avg_Happiness, 3),
+        Q25_Percentile = round(Q25, 3),
+        Q75_Percentile = round(Q75, 3)
+      ) %>%
+      select(RankGroup, Year, Average_Happiness, Q25_Percentile, Q75_Percentile)
+    
+    print(clicked_pretty)
+  })
+  
+}
+
+shinyApp(ui = ui, server = server)
+
+
+```
+

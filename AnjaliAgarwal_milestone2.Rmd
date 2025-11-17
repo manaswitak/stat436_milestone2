@@ -1,0 +1,120 @@
+---
+title: "milestone2"
+output: html_document
+date: "2025-11-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+whr = read.csv("C:/Users/anjal/Downloads/whr/whr.csv")
+library(tidyverse)
+library(plotly)
+library(plotly)
+library(countrycode)
+```
+
+```{r}
+custom_colors <- c(
+  "Very Stable" = "#E6E6FA",        
+  "Stable" = "#9370DB",             
+  "Moderate Volatility" = "#6A0DAD", 
+  "High Volatility" = "#4B0082"    
+)
+volatility_data <- whr %>%
+  mutate(region = countrycode(Country, 
+                               origin = "country.name", 
+                               destination = "region")) %>%
+  group_by(Country, region) %>%
+  summarise(
+    avg_happiness = mean(Happiness.score, na.rm = TRUE),
+    sd_happiness = sd(Happiness.score, na.rm = TRUE),
+    avg_corruption = mean(Corruption, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  # bucket countries by their volatility level
+  mutate(
+    volatility_category = case_when(
+      sd_happiness < 0.2 ~ "Very Stable",      
+      sd_happiness < 0.4 ~ "Stable",          
+      sd_happiness < 0.6 ~ "Moderate Volatility", 
+      TRUE ~ "High Volatility"        
+    )
+  )
+
+ui <- fluidPage(
+  titlePanel("Exploring Happiness Stability by Region"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      # Dropdown selection for region 
+      selectInput("region_filter", 
+                  "Select Region to Highlight:",
+                  choices = c("All Regions", sort(unique(na.omit(volatility_data$region)))),
+                  selected = "All Regions"),
+      hr(),
+      ),
+    
+    mainPanel(
+      plotlyOutput("volatility_plot", height = "600px")
+    )
+  )
+)
+
+server <- function(input, output) {
+  
+  output$volatility_plot <- renderPlotly({
+    
+    # splitting data to be able to see all countries, and regions within context of the overall 
+    highlighted_data <- volatility_data %>%
+      filter((input$region_filter == "All Regions") | (region == input$region_filter)) %>%
+      mutate(layer = "highlighted")
+    
+    dimmed_data <- volatility_data %>%
+      filter(input$region_filter != "All Regions" & region != input$region_filter) %>%
+      mutate(layer = "dimmed")
+    
+    p <- ggplot() +
+      # dimmed countries: no hover + dimmed 
+      geom_point(data = dimmed_data,
+                 aes(x = avg_corruption, 
+                     y = avg_happiness,
+                     size = sd_happiness * 0.8, 
+                     color = volatility_category,
+                     text = ""), 
+                 alpha = 0.05) + 
+      
+      # highlighted countries: hover + bright 
+      geom_point(data = highlighted_data,
+                 aes(x = avg_corruption, 
+                     y = avg_happiness,
+                     size = sd_happiness * 1.2, 
+                     color = volatility_category,
+                     text = paste0(Country, " (", region, ")\n",
+                                 "Avg Happiness: ", round(avg_happiness, 2), "\n",
+                                 "Volatility (SD): ", round(sd_happiness, 3), "\n",
+                                 "Avg Corruption: ", round(avg_corruption, 3))),
+                 alpha = 0.9) +  # Almost fully opaque
+      
+      scale_size_continuous(range = c(2, 12), name = "Volatility (SD)", guide = "none") +
+      
+      # custom color palette
+      scale_color_manual(values = custom_colors) +
+      
+      labs(
+        title = "Happiness Stability vs Corruption (2015-2024)",
+        x = "Average Trust",
+        y = "Average Happiness",
+        color = "Volatility"
+      ) +
+      
+      theme_minimal() +
+      theme(plot.title = element_text(face = "bold"))
+    
+    ggplotly(p, tooltip = "text") %>%
+      layout(showlegend = TRUE)
+  })
+}
+
+shinyApp(ui = ui, server = server)
+```
+

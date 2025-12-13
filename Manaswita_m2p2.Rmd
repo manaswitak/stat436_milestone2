@@ -52,18 +52,28 @@ create_happiness_plot <- function(data, variable) {
     ) +
     theme_minimal() +
     theme(
-      plot.title = element_text(size = 16, face = "bold"),
-      axis.title = element_text(size = 12),
+      plot.title = element_text(size = 24, face = "bold"),
+      axis.title = element_text(size = 16),
+      axis.text = element_text(size = 14),
       legend.position = "bottom",
-      legend.text = element_text(angle = 45, hjust = 1),
-      legend.title = element_text(margin = margin(b = 30, r = 10))
+      legend.text = element_text(angle = 45, hjust = 1, size = 12),
+      legend.title = element_text(size = 14, margin = margin(b = 30, r = 10))
     )
 }
 
 # Define UI
 ui <- fluidPage(
-  titlePanel("Happiness Score Variable Analysis"),
   
+  # Padding/margins for visual clarity 
+  tags$head(
+    tags$style(HTML("
+      body {
+        padding-top: 20px;
+      }
+    "))
+  ),
+  
+  # UI for user variable selection
   sidebarLayout(
     sidebarPanel(
       selectInput(
@@ -79,10 +89,12 @@ ui <- fluidPage(
       p("This app shows the relationship between Happiness Score and various factors.")
     ),
     
+    # Scatter plot UI
     mainPanel(
       plotOutput("scatterplot", height = "600px")
     )
   )
+
 )
 
 # Define server logic

@@ -139,7 +139,7 @@ ui = fluidPage(
         class = "control-panel",
         fluidRow(
           column(
-            width = 4,
+            width = 3,
             sliderInput("year", "Year:",
               min = min(whr_clean$Year, na.rm = TRUE),
               max = max(whr_clean$Year, na.rm = TRUE),
@@ -150,7 +150,7 @@ ui = fluidPage(
             )
           ),
           column(
-            width = 4,
+            width = 3,
             sliderInput("rank", "Rank:",
               min = min(whr_clean$Rank, na.rm = TRUE),
               max = max(whr_clean$Rank, na.rm = TRUE),
@@ -159,13 +159,18 @@ ui = fluidPage(
             )
           ),
           column(
-            width = 4,
-            sliderInput("trust", "Trust:",
-              min = min(whr_clean$Corruption, na.rm = TRUE),
-              max = max(whr_clean$Corruption, na.rm = TRUE),
-              value = range(whr_clean$Corruption, na.rm = TRUE),
+            width = 3,
+            selectInput("variable", "Variable:",
+              choices = c("Trust" = "Corruption", 
+                         "Freedom" = "Freedom", 
+                         "GDP" = "GDP"),
+              selected = "Corruption",
               width = "100%"
             )
+          ),
+          column(
+            width = 3,
+            uiOutput("variable_slider")
           )
         )
       )
@@ -174,19 +179,37 @@ ui = fluidPage(
 )
 ###########################################################
 server = function(input, output, session) {
+  
+  output$variable_slider <- renderUI({
+    var_col <- input$variable
+    var_label <- names(which(c("Trust" = "Corruption", "Freedom" = "Freedom", "GDP" = "GDP") == var_col))
+    
+    sliderInput("var_range", paste0(var_label, ":"),
+      min = min(world_data[[var_col]], na.rm = TRUE),
+      max = max(world_data[[var_col]], na.rm = TRUE),
+      value = range(world_data[[var_col]], na.rm = TRUE),
+      width = "100%"
+    )
+  })
+  
   filtered_data = reactive({
+    req(input$var_range)
+    var_col <- input$variable
+    
     world_data %>%
       filter(
         Year == input$year,
         Rank >= input$rank[1],
         Rank <= input$rank[2],
-        Corruption >= input$trust[1],
-        Corruption <= input$trust[2]
+        .data[[var_col]] >= input$var_range[1],
+        .data[[var_col]] <= input$var_range[2]
       )
   })
   
   output$map = ggiraph::renderGirafe({
     d = filtered_data()
+    var_col <- input$variable
+    var_label <- names(which(c("Trust" = "Corruption", "Freedom" = "Freedom", "GDP" = "GDP") == var_col))
     
     # Get all countries (not filtered by year - show all countries always)
     all_countries_year <- world
@@ -198,13 +221,16 @@ server = function(input, output, session) {
     }
     # Apply bivariate classification only to filtered data
     if (nrow(d) > 0) {
-      d = bi_class(d, x = rank_best, y = trust_val, style = "quantile", dim = 3)
+      # Create variable value column (invert if Corruption for "trust")
+      d$var_val <- if(var_col == "Corruption") -d[[var_col]] else d[[var_col]]
+      
+      d = bi_class(d, x = rank_best, y = var_val, style = "quantile", dim = 3)
       # Add tooltip text
       d$tooltip_text <- paste0(
         d$name, "\n",
         "Rank: ", d$Rank, "\n",
         "Happiness: ", round(d$Happiness.score, 2), "\n",
-        "Trust: ", round(d$Corruption, 3)
+        var_label, ": ", round(d[[var_col]], 3)
       )
     }
     
@@ -231,14 +257,14 @@ server = function(input, output, session) {
         panel.grid.major = element_line(color = "#401161", linewidth = 0.3),
         legend.position = "none"
       ) +
-      labs(title = paste("World Happiness & Trust -", input$year))
+      labs(title = paste("World", var_label, "& Happiness -", input$year))
     
     # Add legend
     legend <- bi_legend(
       pal = named_colour_vector,
       dim = 3,
       xlab = "Better rank",
-      ylab = "Higher trust",
+      ylab = paste("Higher", tolower(var_label)),
       size = 10
     )
     
@@ -259,4 +285,4 @@ shinyApp(ui, server)
 ##lm = lm( Happiness.score~GDP+Generosity+Freedom+Health+Corruption, whr)
 
 
-
+```

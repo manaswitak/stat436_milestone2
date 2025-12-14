@@ -1,0 +1,268 @@
+```{r}
+#Imports
+library(tidyverse)
+library(dplyr)
+library(DT)
+library(sf)
+library(ggplot2)
+library(tsibble)
+library(factoextra)
+library(shinyr)
+library(shiny)
+library(shinydashboard)
+library(leaflet)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(RColorBrewer)
+library(htmlwidgets)
+library(biscale)
+library(palettes)
+library(base64enc)
+
+```
+
+```{r}
+
+```
+
+
+
+```{r}
+#reading tidy WHR
+
+whr=read.csv("whr.csv")
+
+```
+
+
+
+
+
+
+#Map 
+```{r}
+## Unifying country names
+
+world = ne_countries(scale = "medium", returnclass = "sf") %>%
+  st_transform(crs = 4326)
+
+whr_clean = whr %>%
+  mutate(Country = recode(Country,
+    "United States" = "United States of America",
+    "Russia" = "Russian Federation",
+    "Czech Republic" = "Czechia",
+    "Congo (Brazzaville)" = "Republic of the Congo",
+    "Congo (Kinshasa)" = "Democratic Republic of the Congo"
+  ))
+
+world_data = world %>%
+  left_join(whr_clean, by = c("name" = "Country"))
+
+
+```
+
+
+```{r}
+    named_colour_vector <- pal_colour(c(
+      "1-1" = "#eee4f5", "2-1" = "#b7c9e2", "3-1" = "#3b73b5",
+      "1-2" = "#f0bfd8", "2-2" = "#b5a9e9", "3-2" = "#5662a5",
+      "1-3" = "#f49bc5", "2-3" = "#c27bb0", "3-3" = "#7a40a3"
+    ))
+html_setup_format="
+      #map { 
+        height: 400px !important; 
+        width: 80% !important; 
+        margin-left: auto !important;
+        margin-right: auto !important;
+        display: block;
+      }
+
+      .hlegend-box {
+        padding: 6px; 
+        background: white; 
+        border: 1px solid #ccc; 
+        border-radius: 6px; 
+        width: 320px;
+      }
+      .hlegend-bar { 
+        height: 12px; 
+        display: flex; 
+        margin-top: 4px; 
+      }
+      .hlegend-labels {
+        display: flex; 
+        font-size: 10px; 
+        margin-top: 2px;
+      }
+      .hlegend-labels div { flex: 1; text-align: center; }
+
+      .input-row { margin-top: 20px; }
+      .control-panel { padding: 20px; background: #f8f8f8; border-radius: 8px; }
+    "
+
+
+```
+
+
+
+```{r}
+
+##Shiny time
+
+ui = fluidPage(
+  tags$head(
+    tags$style(HTML(html_setup_format))
+  ),
+
+  titlePanel("World Trust Map"),
+
+  fluidRow(
+    column(
+      width = 12,
+      leafletOutput("map")
+    )
+  ),
+
+  fluidRow(
+    class = "input-row",
+    column(
+      width = 12,
+      div(
+        class = "control-panel",
+        fluidRow(
+
+          column(
+            width = 4,
+            sliderInput("year", "Year:",
+              min = min(whr_clean$Year, na.rm = TRUE),
+              max = max(whr_clean$Year, na.rm = TRUE),
+              value = max(whr_clean$Year, na.rm = TRUE),
+              step = 1,
+              sep = "",
+              width = "100%"
+            )
+          ),
+
+          column(
+            width = 4,
+            sliderInput("rank", "Rank:",
+              min = min(whr_clean$Rank, na.rm = TRUE),
+              max = max(whr_clean$Rank, na.rm = TRUE),
+              value = range(whr_clean$Rank, na.rm = TRUE),
+              width = "100%"
+            )
+          ),
+          column(
+            width = 4,
+            sliderInput("trust", "Trust:",
+              min = min(whr_clean$Corruption, na.rm = TRUE),
+              max = max(whr_clean$Corruption, na.rm = TRUE),
+              value = range(whr_clean$Corruption, na.rm = TRUE),
+              width = "100%"
+            )
+          )
+        )
+      )
+    )
+  )
+)
+###########################################################
+
+server = function(input, output, session) {
+
+  filtered_data = reactive({
+    world_data %>%
+      filter(
+        Year == input$year,
+        Rank >= input$rank[1],
+        Rank <= input$rank[2],
+        Corruption >= input$trust[1],
+        Corruption <= input$trust[2]
+      )
+  })
+output$map = renderLeaflet({
+  d = filtered_data()
+  if (!("sf" %in% class(d)) || nrow(d) == 0) {
+    return(leaflet() %>% addProviderTiles("CartoDB.Positron"))
+  }
+
+  # make both axes "higher = better"
+  d = d %>%
+    mutate(
+      rank_best = -Rank,        # better rank = larger
+      trust_val = -Corruption   # lower corruption = larger trust
+    )
+
+  # 3×3 bivariate classes via biscale
+  d = bi_class(d, x = rank_best, y = trust_val, style = "quantile", dim = 3)
+
+
+  # build the map
+  m <- leaflet(options = leafletOptions(minZoom = 1, maxZoom = 18)) %>%
+    addProviderTiles("CartoDB.PositronNoLabels") %>%
+    addPolygons(
+      data = d,
+      fillColor   = ~ ifelse(is.na(bi_class), "lightgray",
+                             named_colour_vector[as.character(bi_class)]),
+      fillOpacity = 0.9,
+      color = "black",
+      weight = 1,
+      
+      #tooltip
+      
+      label = ~paste0(
+        "<b>", name, "</b><br>",
+        "Rank: ", Rank, "<br>",
+        "Happiness Score: ", Happiness.score, "<br>",
+        "Corruption (lower = more trust): ", ifelse(is.na(Corruption), "NA", round(Corruption, 3))
+      ) %>% lapply(htmltools::HTML),
+      highlightOptions = highlightOptions(weight = 3, color = "white", fillOpacity = 0.95, bringToFront = TRUE)
+    )
+
+  # auto 3×3 grid legend (generated by biscale)
+  leg_plot <- bi_legend(
+    pal  = named_colour_vector,
+    dim  = 3,
+    xlab = "Better rank ",
+    ylab = "Higher trust "
+  )
+
+  tmp_png <- tempfile(fileext = ".png")
+  ggsave(tmp_png, plot = leg_plot, width = 2.2, height = 2.2, dpi = 150, bg = "transparent")
+  leg_data_uri <- base64enc::dataURI(file = tmp_png, mime = "image/png")
+
+  m %>% addControl(
+    html = sprintf('<img src="%s" style="width:140px;">', leg_data_uri),
+    position = "bottomleft"
+  )
+})
+
+################################################################################
+
+
+  observe({
+    d = filtered_data()
+    if (!("sf" %in% class(d)) || nrow(d) == 0) return()
+    bbox = st_bbox(d)
+    leafletProxy("map") %>%
+      fitBounds(
+        lng1 = bbox["xmin"],
+        lat1 = bbox["ymin"],
+        lng2 = bbox["xmax"],
+        lat2 = bbox["ymax"]
+      )
+  })
+}
+
+shinyApp(ui, server)
+
+```
+
+```{r}
+lm = lm( Happiness.score~GDP+Generosity+Freedom+Health+Corruption, whr)
+
+summary(lm)
+```
+
+
+
